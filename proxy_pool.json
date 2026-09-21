@@ -1,0 +1,42 @@
+[
+  {
+    "proxy": "198.65.64.27:35081:LdSzG0C7GnlV:148DgucewRWC",
+    "label": "198.65.64.27:35081:LdSzG0C7GnlV:148Dguce"
+  },
+  {
+    "proxy": "204.1.89.246:39953:eOX43Jo2kHkJ:Mq1W6KcU6pBo",
+    "label": "204.1.89.246:39953:eOX43Jo2kHkJ:Mq1W6KcU"
+  },
+  {
+    "proxy": "204.1.85.166:34781:FKmZQYvR0Zry:eIL1Mxn9Pkta",
+    "label": "204.1.85.166:34781:FKmZQYvR0Zry:eIL1Mxn9"
+  },
+  {
+    "proxy": "204.1.85.63:42709:ryYmAs8ClH0F:vfOAis1yPHBU",
+    "label": "204.1.85.63:42709:ryYmAs8ClH0F:vfOAis1yP"
+  },
+  {
+    "proxy": "204.1.85.108:34051:wbH0RBSDIDm5:7a1vbG3a86wJ",
+    "label": "204.1.85.108:34051:wbH0RBSDIDm5:7a1vbG3a"
+  },
+  {
+    "proxy": "38.110.113.43:39521:asmEAsLpry65:XMcFRhRuCXXU",
+    "label": "38.110.113.43:39521:asmEAsLpry65:XMcFRhR"
+  },
+  {
+    "proxy": "198.65.55.123:37149:YJU5quYpyuc6:iv5JbrZJdSM0",
+    "label": "198.65.55.123:37149:YJU5quYpyuc6:iv5JbrZ"
+  },
+  {
+    "proxy": "209.227.80.141:44257:GHjSGJR3vlaq:5OQLtDTPU7cs",
+    "label": "209.227.80.141:44257:GHjSGJR3vlaq:5OQLtD"
+  },
+  {
+    "proxy": "209.227.80.139:46807:dIeIxmSgksoc:yI5JtruVD4AD",
+    "label": "209.227.80.139:46807:dIeIxmSgksoc:yI5Jtr"
+  },
+  {
+    "proxy": "209.227.80.135:36555:VH3SbrDGLrY2:vUeIGkQkX7jU",
+    "label": "209.227.80.135:36555:VH3SbrDGLrY2:vUeIGk"
+  }
+]
