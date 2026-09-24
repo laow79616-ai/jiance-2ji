@@ -625,7 +625,8 @@ def require_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth = request.headers.get('Authorization', '')
-        if auth != f'Bearer {AUTH_KEY}':
+        key = request.args.get('key') or request.args.get('token') or ''
+        if auth != f'Bearer {AUTH_KEY}' and key != AUTH_KEY:
             return jsonify({"error": "未授权"}), 401
         return f(*args, **kwargs)
     return decorated

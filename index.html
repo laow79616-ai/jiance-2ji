@@ -1606,22 +1606,13 @@
         function getBatchPremium() {
             return checkResults.filter(r => !!r.premium);
         }
-        async function exportJob(kind) {
+        function downloadExport(kind) {
             kind = kind || 'clean';
-            try {
-                const d = await apiCall('/api/export/round?type=' + encodeURIComponent(kind));
-                const list = (d && d.usernames) || [];
-                if (!list.length) { showToast('本轮没有可导出数据'); return; }
-                const blob = new Blob([list.join('\n') + '\n'], {type:'text/plain;charset=utf-8'});
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = '本轮_' + kind + '_' + list.length + '.txt';
-                a.click();
-                showToast('已导出本轮 ' + list.length + ' 条');
-            } catch (e) {
-                showToast('导出失败: ' + (e.message || e));
-            }
+            if (kind === 'available') kind = 'clean';
+            var token = (typeof AUTH_KEY !== 'undefined' && AUTH_KEY) ? AUTH_KEY : (localStorage.getItem('tg_auth_key') || '');
+            window.location.href = '/api/check/job/export?type=' + encodeURIComponent(kind) + '&key=' + encodeURIComponent(token);
         }
+        async function exportJob(kind) { downloadExport(kind); }
         function exportResults(kind) { exportJob(kind === 'available' ? 'clean' : (kind || 'clean')); }
         function exportBatchClean() { exportJob('clean'); }
         function exportBatchPremium() { exportJob('premium'); }
