@@ -289,6 +289,38 @@ def is_frozen_user(user):
         return True
     return False
 
+
+def classify_entity_user(username, user):
+    """搜到个人号：活跃/冻结/广告/水军/注销/会员。绝不标未注册。"""
+    if user is None:
+        return {"username": username, "status": "error", "label": "空实体", "premium": False, "collect": False}
+    fn = getattr(user, "first_name", "") or ""
+    ln = getattr(user, "last_name", "") or ""
+    prem = bool(getattr(user, "premium", False))
+    is_bot = bool(getattr(user, "bot", False))
+    if getattr(user, "deleted", False) or (fn == "" and ln == "" and not getattr(user, "username", None) and getattr(user, "id", None)):
+        # 已注销常见：deleted=True 或显示 Deleted Account
+        if getattr(user, "deleted", False) or str(fn).lower() in ("deleted account", "deleted"):
+            return {"username": username, "status": "deleted", "label": "已注销", "premium": False, "collect": False, "first_name": fn, "last_name": ln}
+    if getattr(user, "deleted", False):
+        return {"username": username, "status": "deleted", "label": "已注销", "premium": False, "collect": False}
+    if "is_frozen_user" in globals() and is_frozen_user(user):
+        return {"username": username, "status": "frozen", "label": "冻结", "premium": prem, "collect": False, "first_name": fn, "last_name": ln}
+    ad = is_ad_account(username, fn, ln) if "is_ad_account" in globals() else False
+    spam = (is_bot_like_username(username) if "is_bot_like_username" in globals() else False) or is_bot
+    online = classify_last_online(getattr(user, "status", None)) if "classify_last_online" in globals() else "unknown"
+    if ad:
+        st, lab, collect = "ad", "广告", False
+    elif spam:
+        st, lab, collect = "spam", "水军号", False
+    elif online == "stale":
+        st, lab, collect = "inactive", "长期未在线", False
+    else:
+        st, lab, collect = "clean", "活跃", True
+    return {"username": username, "status": st, "label": lab, "premium": prem, "collect": collect,
+            "is_ad": ad, "is_spam": spam, "online": online, "first_name": fn, "last_name": ln,
+            "user_id": getattr(user, "id", None)}
+
 def classify_found_user(username, user):
     fn = getattr(user, "first_name", "") or ""
     ln = getattr(user, "last_name", "") or ""
@@ -1160,6 +1192,8 @@ async def async_check_one_username(client, username):
         return {"username": username, "status": "flood", "error": f"FloodWait {e.seconds}s", "_flood_seconds": int(e.seconds), "premium": False}
     except Exception as e:
         err = str(e)
+        if "AuthKeyUnregistered" in err or "key is not registered" in err.lower():
+            return {"username": username, "status": "retry_session", "error": err[:120], "premium": False, "collect": False, "_skip_write": True}
         if "No user has" in err or "USERNAME_NOT_OCCUPIED" in err:
             return {"username": username, "status": "available", "premium": False}
         if "USERNAME_INVALID" in err:
@@ -1301,7 +1335,8 @@ def _job_snapshot():
             "started_at": CHECK_JOB.get("started_at"),
             "updated_at": CHECK_JOB.get("updated_at"),
             "results": results[-200:],
-            "available": sum(1 for x in results if x.get("status") in ("clean", "available") or x.get("collect")),
+            "available": sum(1 for x in results if (x.get("collect") or x.get("status") in ("clean", "taken")) and x.get("status") != "available"),
+            "unregistered": sum(1 for x in results if x.get("status") == "available"),
             "premium": sum(1 for x in results if x.get("premium")),
             "deleted": sum(1 for x in results if x.get("status") in ("deleted", "unavailable")),
             "error": sum(1 for x in results if x.get("status") == "error"),
@@ -1414,8 +1449,11 @@ def api_check_job_export():
         st = r.get("status")
         prem = bool(r.get("premium"))
         collect = bool(r.get("collect"))
-        if kind in ("clean", "available", "target"):
-            if collect or st in ("clean", "available"):
+        if kind in ("clean", "target", "usable"):
+            if (collect or st in ("clean", "taken")) and st != "available":
+                out.append("@" + u)
+        elif kind in ("available", "unreg", "unregistered"):
+            if st == "available":
                 out.append("@" + u)
         elif kind in ("premium", "vip"):
             if prem:
@@ -1460,8 +1498,10 @@ def api_check_job_export_json():
         prem = bool(r.get("premium"))
         collect = bool(r.get("collect"))
         ok = False
-        if kind in ("clean", "available", "target"):
-            ok = collect or st in ("clean", "available")
+        if kind in ("clean", "target", "usable"):
+            ok = (collect or st in ("clean", "taken")) and st != "available"
+        elif kind in ("available", "unreg", "unregistered"):
+            ok = st == "available"
         elif kind in ("premium", "vip"):
             ok = prem
         elif kind in ("deleted",):
@@ -1573,8 +1613,15 @@ def api_check_job_status():
 def api_check_job_stop():
     with JOB_LOCK:
         CHECK_JOB["should_stop"] = True
-        CHECK_JOB["message"] = "正在停止"
-    return jsonify({"success": True})
+        CHECK_JOB["running"] = False
+        CHECK_JOB["queue"] = []
+        CHECK_JOB["results"] = []
+        CHECK_JOB["total"] = 0
+        CHECK_JOB["done"] = 0
+        CHECK_JOB["message"] = "已清空"
+        CHECK_JOB["started_at"] = None
+        CHECK_JOB["updated_at"] = None
+    return jsonify({"success": True, "cleared": True})
 
 
 @app.route('/api/check/one', methods=['POST'])
@@ -1712,6 +1759,9 @@ def api_check_one():
                             et = type(ent).__name__
                             if et == "User" or getattr(ent, "first_name", None) is not None:
                                 user = ent
+                                out = classify_entity_user(username, user)
+                                out["_bot"] = bot_key
+                                return out
                                 if getattr(user, "deleted", False):
                                     return {"username": username, "status": "deleted", "premium": False, "collect": False, "_bot": bot_key}
                                 fn = getattr(user, "first_name", "") or ""
@@ -1729,7 +1779,7 @@ def api_check_one():
                                 return {"username": username, "status": st, "premium": premium, "collect": collect, "is_ad": ad, "is_spam": bot_like, "first_name": fn, "last_name": ln, "_bot": bot_key}
                             return {"username": username, "status": "unavailable", "premium": False, "collect": False, "entity_type": et, "_bot": bot_key}
                         except UsernameNotOccupiedError:
-                            return {"username": username, "status": "available", "premium": False, "collect": False, "_bot": bot_key}
+                            return {"username": username, "status": "available", "label": "未注册", "premium": False, "collect": False, "_bot": bot_key}
                         except Exception as _e:
                             return {"username": username, "status": "error", "error": str(_e)[:120], "premium": False, "collect": False, "_bot": bot_key}
                     except UsernameInvalidError:
@@ -1754,7 +1804,8 @@ def api_check_one():
                         # 若有 classify_last_online 则用
                         if 'classify_last_online' in dir() or 'classify_last_online' in globals():
                             try:
-                                online_flag, inactive = classify_last_online(user)
+                                online_kind = classify_last_online(getattr(user, 'status', None))
+                                inactive = (online_kind == 'stale')
                             except Exception:
                                 inactive = st_name in ('UserStatusLastMonth', 'UserStatusEmpty')
                         if ad:
@@ -1844,158 +1895,112 @@ def api_check_one():
 
 
 def api_check_one():
-    """检测单个用户名：最多试3个水军，单号8秒超时，FloodWait自动冷却"""
-    import time
+    """1号机口径：授权水军 ResolveUsername；未占用=未注册；FloodWait换号；找到人再分类。"""
+    import asyncio, time
     data = request.json or {}
-    username = (data.get('username') or '').strip().lstrip('@')
+    username = (data.get("username") or "").strip().lstrip("@")
     if not username:
-        return jsonify({"error": "请提供用户名"}), 400
-
+        return jsonify({"error": "请提供用户名", "status": "error", "username": ""}), 400
     config = load_config()
-    bots = [b for b in config.get('bots', []) if b.get('session_path')]
-    if not bots:
-        return jsonify({"username": username, "status": "error", "error": "无可用水军账号"})
-
-    now = time.time()
-    # 过滤还在冷却的号
-    ready = []
-    for b in bots:
-        phone = b.get("phone") or b.get("id") or ""
-        until = FLOOD_COOLDOWN.get(phone, 0)
-        if until > now:
+    bots = []
+    for b in (config.get("bots") or []):
+        if not b.get("session_path"):
             continue
-        ready.append(b)
-    if not ready:
-        ready = bots  # 全在冷却则仍尝试，避免完全不可用
+        if str(b.get("status") or "") in ("need_relogin", "unauth", "unauthorized", "stopped", "stop"):
+            continue
+        key = b.get("id") or b.get("phone") or ""
+        try:
+            cool, _ = is_bot_cooling(key)
+            if cool:
+                continue
+        except Exception:
+            pass
+        phone = b.get("phone") or key
+        try:
+            until = FLOOD_COOLDOWN.get(phone, 0) or FLOOD_COOLDOWN.get(key, 0)
+            if until and until > time.time():
+                continue
+        except Exception:
+            pass
+        bots.append(b)
+    if not bots:
+        return jsonify({"username": username, "status": "flood", "error": "无可用授权水军或全部冷却", "premium": False, "collect": False})
 
-    start_idx = sum(ord(ch) for ch in username) % len(ready)
-    ordered = ready[start_idx:] + ready[:start_idx]
-    ordered = ordered[:3]  # 最多试3个号
-
-    async def _one():
+    async def _go():
         from telethon import TelegramClient
+        from telethon.errors import UsernameNotOccupiedError, UsernameInvalidError, FloodWaitError, AuthKeyUnregisteredError
         from telethon.tl.functions.contacts import ResolveUsernameRequest
-        from telethon.errors import UsernameNotOccupiedError, UsernameInvalidError, FloodWaitError
-        last_err = "全部水军失败"
-        for bot in ordered:
-            phone = bot.get("phone") or bot.get("id") or ""
+        last = {"username": username, "status": "flood", "error": "全部水军失败", "premium": False, "collect": False}
+        for bot in bots[:8]:
             sp = bot.get("session_path")
-            client = None
+            phone = bot.get("phone") or bot.get("id") or ""
             try:
-                api_id = int(bot.get("api_id") or API_CONFIGS[0]["api_id"])
-                api_hash = str(bot.get("api_hash") or API_CONFIGS[0]["api_hash"])
-                # 暂时不用代理，避免断连
-                client = TelegramClient(sp, api_id, api_hash)
+                api_id = int(bot.get("api_id") or 0)
+            except Exception:
+                continue
+            api_hash = str(bot.get("api_hash") or "")
+            if not api_id or not api_hash:
+                try:
+                    pool = load_api_pool()
+                    api_id = int(pool[0]["api_id"]); api_hash = str(pool[0]["api_hash"])
+                except Exception:
+                    continue
+            client = TelegramClient(sp, api_id, api_hash)
+            try:
                 await asyncio.wait_for(client.connect(), timeout=8)
                 if not await asyncio.wait_for(client.is_user_authorized(), timeout=5):
-                    last_err = f"{phone} 未授权"
-                    await client.disconnect()
+                    last = {"username": username, "status": "retry_session", "error": "session未授权", "premium": False, "collect": False}
                     continue
                 try:
-                    entity = await asyncio.wait_for(client.get_entity(username), timeout=10)
-                    et = type(entity).__name__
-                    if et == "User" or (hasattr(entity, "first_name") and hasattr(entity, "bot") and not getattr(entity, "broadcast", False) and not getattr(entity, "megagroup", False)):
-                        user = entity
-                        if getattr(user, 'deleted', False):
-                            out = {"username": username, "status": "deleted", "premium": False, "collect": False}
-                        else:
-                            fn = getattr(user, 'first_name', '') or ''
-                            ln = getattr(user, 'last_name', '') or ''
-                            premium = bool(getattr(user, 'premium', False))
-                            is_bot = bool(getattr(user, 'bot', False))
-                            ad = is_ad_account(username, fn, ln)
-                            bot_like = is_bot_like_username(username) or is_bot
-                            online_kind = classify_last_online(getattr(user, 'status', None))
-                            if ad:
-                                st = "ad"
-                                collect = False
-                            elif bot_like:
-                                st = "spam"
-                                collect = False
-                            elif online_kind == "stale":
-                                st = "inactive"
-                                collect = False
-                            else:
-                                st = "clean"
-                                collect = True
-                            out = {
-                                "username": username,
-                                "status": st,
-                                "premium": premium,
-                                "is_ad": ad,
-                                "is_spam": bot_like,
-                                "online": online_kind,
-                                "collect": collect,
-                                "user_id": getattr(user, 'id', None),
-                                "first_name": fn,
-                                "last_name": ln,
-                            }
-                    else:
-                        # 频道/群：不是个人用户采集对象
-                        out = {"username": username, "status": "unavailable", "premium": False, "collect": False, "is_spam": False, "entity_type": type(entity).__name__}
-                    await client.disconnect()
-                    return out
+                    r = await asyncio.wait_for(client(ResolveUsernameRequest(username)), timeout=10)
                 except UsernameNotOccupiedError:
-                    await client.disconnect()
-                    return {"username": username, "status": "available", "premium": False, "collect": False}
+                    return {"username": username, "status": "available", "label": "未注册", "premium": False, "collect": False}
                 except UsernameInvalidError:
-                    await client.disconnect()
                     return {"username": username, "status": "invalid", "premium": False, "collect": False}
-                except ValueError as e:
-                    # get_entity 找不到时常见 ValueError
-                    msg = str(e).lower()
-                    await client.disconnect()
-                    if "no user" in msg or "not found" in msg or "nobody" in msg:
-                        return {"username": username, "status": "available", "premium": False, "collect": False}
-                    return {"username": username, "status": "error", "error": str(e)[:100], "premium": False}
                 except FloodWaitError as e:
-                    # 冷却：最多记 6 小时，避免一次记 20 小时导致全废
-                    sec = min(int(e.seconds), 6 * 3600)
-                    FLOOD_COOLDOWN[phone] = time.time() + sec
-                    last_err = f"FloodWait {e.seconds}s"
+                    sec = min(int(e.seconds or 3600), 6*3600)
                     try:
-                        await client.disconnect()
+                        set_bot_cooldown(phone, sec, reason="FloodWait")
                     except Exception:
-                        pass
+                        FLOOD_COOLDOWN[phone] = time.time() + sec
+                    last = {"username": username, "status": "flood", "error": "FloodWait %ss" % e.seconds, "premium": False, "collect": False}
                     continue
-                except asyncio.TimeoutError:
-                    last_err = "查询超时"
-                    try:
-                        await client.disconnect()
-                    except Exception:
-                        pass
+                except AuthKeyUnregisteredError:
+                    last = {"username": username, "status": "retry_session", "error": "AuthKeyUnregistered", "premium": False, "collect": False}
                     continue
-                except Exception as e:
-                    last_err = str(e)[:100]
-                    try:
-                        await client.disconnect()
-                    except Exception:
-                        pass
-                    continue
-            except asyncio.TimeoutError:
-                last_err = "连接超时"
-                if client:
-                    try:
-                        await client.disconnect()
-                    except Exception:
-                        pass
-                continue
+                users = list(getattr(r, "users", None) or [])
+                if not users:
+                    chats = list(getattr(r, "chats", None) or [])
+                    if chats:
+                        return {"username": username, "status": "unavailable", "label": "非个人", "premium": False, "collect": False}
+                    return {"username": username, "status": "available", "label": "未注册", "premium": False, "collect": False}
+                user = users[0]
+                out = classify_found_user(username, user)
+                return out
             except Exception as e:
-                last_err = str(e)[:100]
-                if client:
-                    try:
-                        await client.disconnect()
-                    except Exception:
-                        pass
-                continue
-        return {"username": username, "status": "error", "error": last_err, "premium": False}
+                err = str(e)
+                if "USERNAME_NOT_OCCUPIED" in err or "No user has" in err:
+                    return {"username": username, "status": "available", "label": "未注册", "premium": False, "collect": False}
+                if "FloodWait" in err or "wait of" in err:
+                    last = {"username": username, "status": "flood", "error": err[:120], "premium": False, "collect": False}
+                    continue
+                last = {"username": username, "status": "error", "error": err[:180], "premium": False, "collect": False}
+            finally:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+        return last
 
     try:
-        result = run_async(_one())
-        return jsonify(result)
+        loop = asyncio.new_event_loop()
+        try:
+            data = loop.run_until_complete(asyncio.wait_for(_go(), timeout=40))
+        finally:
+            loop.close()
     except Exception as e:
-        return jsonify({"username": username, "status": "error", "error": str(e)[:120]}), 500
-
+        data = {"username": username, "status": "error", "error": str(e)[:180], "premium": False, "collect": False}
+    return jsonify(data)
 
 @app.route('/api/check/result', methods=['POST'])
 @require_auth
@@ -2256,45 +2261,39 @@ def api_clear_blacklist():
 @app.route('/api/bots/work_status', methods=['GET'])
 @require_auth
 def api_bots_work_status():
-    import time
     config = load_config()
     bots = config.get("bots") or []
-    cd = load_cooldown()
-    daily = load_daily_stats()
-    rows = []
-    work = 0
-    cool = 0
-    capped = 0
+    work = cool = full = 0
+    today = 0
     for b in bots:
-        key = str(b.get("id") or b.get("phone") or "")
-        cooling, left = is_bot_cooling(key)
-        remain, used, limit = bot_daily_left(key)
+        key = b.get("id") or b.get("phone") or ""
+        st = str(b.get("status") or "")
+        if st in ("need_relogin", "unauth", "unauthorized", "stopped", "stop"):
+            continue
+        cooling = False
+        try:
+            cooling, left = is_bot_cooling(key)
+        except Exception:
+            cooling = False
+            left = 0
+        if not cooling:
+            try:
+                phone = b.get("phone") or key
+                until = FLOOD_COOLDOWN.get(phone, 0) or FLOOD_COOLDOWN.get(key, 0)
+                import time
+                if until > time.time():
+                    cooling = True
+            except Exception:
+                pass
         if cooling:
-            st = "cooldown"
             cool += 1
-        elif remain <= 0:
-            st = "daily_capped"
-            capped += 1
         else:
-            st = "work"
             work += 1
-        rows.append({
-            "id": key,
-            "phone": b.get("phone"),
-            "name": b.get("name"),
-            "status": st,
-            "cooldown_left": left if cooling else 0,
-            "daily_used": used,
-            "daily_left": remain,
-            "daily_limit": limit,
-        })
-    return jsonify({
-        "bots": rows,
-        "summary": {"work": work, "cooldown": cool, "daily_capped": capped, "total": len(rows)},
-        "max_batch": MAX_BATCH_SIZE,
-        "default_daily_limit": DEFAULT_DAILY_LIMIT,
-    })
-
+        today += int(b.get("today_checked") or b.get("today") or 0)
+        cap = int(b.get("daily_limit") or 0)
+        if cap and int(b.get("today_checked") or 0) >= cap:
+            full += 1
+    return jsonify({"work": work, "cool": cool, "full": full, "today": today, "working": work, "cooling": cool, "batch_size": 300})
 
 
 @app.route("/api/export/round", methods=["GET"])

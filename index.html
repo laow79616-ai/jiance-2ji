@@ -476,14 +476,8 @@
             <div class="stats" id="queueTip" style="font-size:12px;opacity:.8;margin:0 0 8px;">总导入 · 本批 · 队列</div>
             <div id="checkStats" style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin:12px 0;">
                 <div class="stat-card"><div class="number" id="checkTotal" style="color:var(--primary)">0</div><div class="label">总导入</div></div>
-                    <div class="stat-card" style="text-align:center;padding:12px;border-radius:10px;background:rgba(255,255,255,.04);">
-                        <div class="number" id="checkBatch" style="font-size:22px;font-weight:700;">0</div>
-                        <div class="label" style="font-size:12px;opacity:.75;">本批工作</div>
-                    <div class="stat-card" style="text-align:center;padding:12px;border-radius:10px;background:rgba(255,255,255,.04);">
-                        <div class="number" id="checkRemain" style="font-size:22px;font-weight:700;color:#ff9800;">0</div>
-                        <div class="label" style="font-size:12px;opacity:.75;">队列剩余</div>
-                    </div>
-                    </div>
+                <div class="stat-card"><div class="number" id="checkBatch">0</div><div class="label">本批工作</div></div>
+                <div class="stat-card"><div class="number" id="checkRemain" style="color:#ff9800">0</div><div class="label">队列剩余</div></div>
                 <div class="stat-card"><div class="number" id="checkAvailable" style="color:var(--success)">0</div><div class="label">可用</div></div>
                 
                 <div class="stat-card"><div class="number" id="checkPremium" style="color:#ffc107">0</div><div class="label">会员</div></div>
@@ -507,7 +501,7 @@
                     <button class="btn btn-sm btn-secondary" onclick="filterCheckResults('deleted')">已注销</button>
                     <button class="btn btn-sm btn-secondary" onclick="filterCheckResults('available')">未注册</button>
                 </div>
-                <p style="color:var(--text-secondary);font-size:12px;margin-bottom:8px;">提示：本轮：可用=干净活跃；会员=Premium。导出本轮≠服务器累计。广告/水军/注销/未注册不采集。</p>
+                <p style="color:var(--text-secondary);font-size:12px;margin-bottom:8px;">提示：可用=干净活跃真人；会员=Premium。未注册/广告/水军/注销不采集、不计入可用。</p>
                 <div class="username-list" id="checkResultsList" style="max-height:500px;overflow-y:auto;background:var(--bg);border-radius:10px;padding:8px 0;border:1px solid var(--border)"></div>
             </div>
         </div>
@@ -626,7 +620,9 @@
         // Config
         let AUTH_KEY = localStorage.getItem('tg_auth_key') || '';
         let botsData = [];
-        let checkResults = sanitizeJobRows(dedupeCheckResults([]));
+        let checkResults = [];
+        function dedupeCheckResults(rows){ return rows || []; }
+        function sanitizeJobRows(rows){ return rows || []; }
         let filteredResults = [];
         let isChecking = false;
         let shouldStop = false;
@@ -1142,7 +1138,8 @@
             var st = (r && r.status) || '';
             var prem = !!(r && r.premium);
             if (prem) return {t:'会员', c:'#ffc107'};
-            if (st === 'clean' || st === 'available' || r.collect) return {t:'可用', c:'#22c55e'};
+            if (st === 'available') return {t:'未注册', c:'#94a3b8'};
+            if (st === 'clean' || st === 'taken' || r.collect) return {t:'可用', c:'#22c55e'};
             if (st === 'deleted') return {t:'已删除', c:'#a855f7'};
             if (st === 'ad') return {t:'广告', c:'#fb923c'};
             if (st === 'spam') return {t:'水军号', c:'#94a3b8'};
@@ -1179,16 +1176,16 @@
             var set = function(id, v){ var el=document.getElementById(id); if(el) el.textContent = v; };
             set('checkTotal', total);
             set('checkBatch', batchWork);
-            set('checkQueueLeft', qleft);
+            set('checkQueueLeft', qleft); set('checkRemain', qleft);
             set('checkPending', batchWork);
             var rows = job.results || [];
             var clean = 0, prem = 0, del = 0;
             rows.forEach(function(r){
                 if (r.premium) prem++;
-                if (r.status === 'clean' || r.collect) clean++;
+                if ((r.status === 'clean' || r.status === 'taken' || r.collect) && r.status !== 'available') clean++;
                 if (r.status === 'deleted') del++;
             });
-            set('checkAvailable', job.available != null ? job.available : clean);
+            set('checkAvailable', clean);
             set('checkPremium', job.premium != null ? job.premium : prem);
             set('checkDeleted', job.deleted != null ? job.deleted : del);
             set('checkWorking', batchWork);
@@ -1387,24 +1384,22 @@
             try { updateCheckStats(); if (typeof renderCheckResults === 'function') renderCheckResults(); } catch (e) {}
         }
         /* old stopCheck removed */
-        function clearCheck() { checkResults = sanitizeJobRows(dedupeCheckResults([])); document.getElementById('usernameInput').value = ''; document.getElementById('progressBar').classList.remove('active'); document.getElementById('checkStats').style.display = 'grid'; document.getElementById('checkResultsSection').style.display = 'none'; updateCheckStats(); }
-
-        
-        function dedupeCheckResults(list) {
-            var seen = {};
-            var out = [];
-            (list || []).forEach(function(r){
-                if (!r) return;
-                var k = String(r.username || '').replace(/^@/, '').toLowerCase();
-                if (!k) return;
-                if (seen[k] !== undefined) {
-                    out[seen[k]] = r;
-                } else {
-                    seen[k] = out.length;
-                    out.push(r);
-                }
+        async function clearCheck() {
+            try {
+                await apiCall('/api/check/job/stop','POST',{});
+            } catch(e) {}
+            checkResults = [];
+            var box = document.getElementById('usernameInput');
+            if (box) box.value = '';
+            ['checkTotal','checkBatch','checkRemain','checkAvailable','checkPremium','checkDeleted','checkPending','checkQueueLeft'].forEach(function(id){
+                var el=document.getElementById(id); if(el) el.textContent='0';
             });
-            return out;
+            var tip=document.getElementById('queueTip');
+            if(tip) tip.textContent='总导入 0 · 本批工作 0 · 队列剩余 0';
+            var list=document.getElementById('checkResultsList');
+            if(list) list.innerHTML='';
+            try { updateCheckStats(); } catch(e) {}
+            showToast('已清空本轮任务和统计');
         }
 
         function updateCheckStats() {
@@ -1505,13 +1500,11 @@
         async function refreshBotWorkStatus() {
             try {
                 var d = await apiCall('/api/bots/work_status');
-                var s = (d && d.summary) || {};
-                var work = s.work || 0;
-                var cool = s.cooldown || 0;
-                var cap = s.daily_capped || 0;
-                var used = 0;
-                (d.bots || []).forEach(function(b){ used += Number(b.daily_used || 0); });
-                if (d.today_used != null) used = d.today_used;
+                var s = (d && d.summary) || d || {};
+                var work = Number(s.work != null ? s.work : (s.working != null ? s.working : (d.work != null ? d.work : d.working))) || 0;
+                var cool = Number(s.cool != null ? s.cool : (s.cooling != null ? s.cooling : (s.cooldown != null ? s.cooldown : d.cool))) || 0;
+                var cap  = Number(s.full != null ? s.full : (s.daily_capped != null ? s.daily_capped : d.full)) || 0;
+                var used = Number(s.today != null ? s.today : (d.today_used != null ? d.today_used : d.today)) || 0;
                 var map = {
                     dsWork: work, checkWork: work, statWork: work,
                     dsCool: cool, checkCool: cool, statCool: cool, dsCooldown: cool,
@@ -1522,18 +1515,17 @@
                     var el = document.getElementById(id);
                     if (el) el.textContent = map[id];
                 });
-                // 按卡片文案兜底：工作中/冷却中/今日已满/今日检测
                 document.querySelectorAll('#tab-check .stat-card, #detectStatusBar .stat-card, .detect-meter .stat-card').forEach(function(card){
                     var lab = ((card.querySelector('.label')||{}).textContent||'').trim();
                     var num = card.querySelector('.number');
                     if (!num) return;
                     if (lab === '工作中' || lab === '工作') num.textContent = work;
                     else if (lab === '冷却中' || lab === '冷却') num.textContent = cool;
-                    else if (lab === '今日已满' || lab === '日额满') num.textContent = cap;
-                    else if (lab === '今日检测') num.textContent = used;
+                    else if (lab === '今日已满' || lab === '已满') num.textContent = cap;
+                    else if (lab === '今日检测' || lab === '今日') num.textContent = used;
                 });
-                var txt = '工作 '+work+' · 冷却 '+cool+' · 日额满 '+cap+' · 每批≤300';
-                document.querySelectorAll('#botWorkStatus').forEach(function(n){ n.textContent = txt; });
+                var line = document.getElementById('botWorkStatus');
+                if (line) line.textContent = '工作 '+work+' · 冷却 '+cool+' · 日额满 '+cap+' · 每批≤300';
             } catch (e) {}
         }
         setInterval(function(){ try{ refreshBotWorkStatus(); }catch(e){} }, 5000);
@@ -1738,6 +1730,7 @@
                 }
             });
             saveBlacklist(list);
+            apiCall('/api/blacklist/add', 'POST', { keywords: keywords }).catch(function(){});
             // 从检测结果中删除包含这些关键词的用户名
             const before = checkResults.length;
             const deleted = checkResults.filter(r => matchesBlacklist(r.username, keywords.map(k => k.toLowerCase())));
