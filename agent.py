@@ -689,7 +689,8 @@ def api_bot_list():
             "first_name": bot.get("first_name", ""),
             "status": bot.get("status", "unknown"),
             "type": bot.get("type", "userbot"),
-            "added_time": bot.get("added_time", "")
+            "added_time": bot.get("added_time", ""),
+            "proxy": bot.get("proxy", "")
         })
     return jsonify({"bots": safe_bots})
 
@@ -888,6 +889,7 @@ def api_verify_code():
             "api_hash": result.get("api_hash", ""),
             "proxy": pick_proxy_evenly() or "",
             "status": "ready",
+            "proxy": (data.get("proxy") or "").strip() or (pick_proxy_evenly() if "pick_proxy_evenly" in globals() else ""),
             "type": "userbot",
             "added_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
@@ -1584,6 +1586,16 @@ def api_check_job_start():
         if k in seen: continue
         seen.add(k); uniq.append(u)
     if not uniq:
+        with JOB_LOCK:
+            leftover = list(CHECK_JOB.get("queue") or [])
+        if leftover:
+            with JOB_LOCK:
+                CHECK_JOB["running"] = True
+                CHECK_JOB["should_stop"] = False
+                CHECK_JOB["message"] = "继续未完成队列 %s" % len(leftover)
+            th = threading.Thread(target=_check_job_worker, daemon=True)
+            th.start()
+            return jsonify({"success": True, "resumed": True, "left": len(leftover)})
         return jsonify({"success": False, "error": "没有用户名"}), 400
     with JOB_LOCK:
         # 旧任务卡死时允许强制接管
@@ -1608,20 +1620,35 @@ def api_check_job_start():
 def api_check_job_status():
     return jsonify(_job_snapshot())
 
-@app.route("/api/check/job/stop", methods=["POST"])
+@app.route("/api/check/job/clear", methods=["POST"])
 @require_auth
-def api_check_job_stop():
+def api_check_job_clear():
     with JOB_LOCK:
-        CHECK_JOB["should_stop"] = True
         CHECK_JOB["running"] = False
+        CHECK_JOB["should_stop"] = True
         CHECK_JOB["queue"] = []
         CHECK_JOB["results"] = []
         CHECK_JOB["total"] = 0
         CHECK_JOB["done"] = 0
         CHECK_JOB["message"] = "已清空"
         CHECK_JOB["started_at"] = None
-        CHECK_JOB["updated_at"] = None
-    return jsonify({"success": True, "cleared": True})
+        CHECK_JOB["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return jsonify({"success": True})
+
+@app.route("/api/check/job/stop", methods=["POST"])
+@require_auth
+def api_check_job_stop():
+    with JOB_LOCK:
+        CHECK_JOB["should_stop"] = True
+        CHECK_JOB["running"] = False
+        CHECK_JOB["message"] = "已暂停"
+    return jsonify({
+        "success": True,
+        "paused": True,
+        "left": len(CHECK_JOB.get("queue") or []),
+        "done": CHECK_JOB.get("done") or 0,
+        "total": CHECK_JOB.get("total") or 0,
+    })
 
 
 @app.route('/api/check/one', methods=['POST'])
@@ -2261,39 +2288,44 @@ def api_clear_blacklist():
 @app.route('/api/bots/work_status', methods=['GET'])
 @require_auth
 def api_bots_work_status():
+    import time
     config = load_config()
     bots = config.get("bots") or []
-    work = cool = full = 0
-    today = 0
+    work = cool = capped = today = 0
+    rows = []
     for b in bots:
-        key = b.get("id") or b.get("phone") or ""
+        key = str(b.get("id") or b.get("phone") or "")
         st = str(b.get("status") or "")
         if st in ("need_relogin", "unauth", "unauthorized", "stopped", "stop"):
             continue
-        cooling = False
+        cooling, left = False, 0
         try:
             cooling, left = is_bot_cooling(key)
         except Exception:
-            cooling = False
-            left = 0
-        if not cooling:
-            try:
-                phone = b.get("phone") or key
-                until = FLOOD_COOLDOWN.get(phone, 0) or FLOOD_COOLDOWN.get(key, 0)
-                import time
-                if until > time.time():
-                    cooling = True
-            except Exception:
-                pass
+            pass
+        try:
+            phone = b.get("phone") or key
+            until = FLOOD_COOLDOWN.get(phone, 0) if "FLOOD_COOLDOWN" in globals() else 0
+            if until and until > time.time():
+                cooling = True
+        except Exception:
+            pass
+        used = int(b.get("today_checked") or b.get("today") or 0)
+        today += used
+        limit = int(b.get("daily_limit") or 0)
         if cooling:
             cool += 1
+        elif limit and used >= limit:
+            capped += 1
         else:
             work += 1
-        today += int(b.get("today_checked") or b.get("today") or 0)
-        cap = int(b.get("daily_limit") or 0)
-        if cap and int(b.get("today_checked") or 0) >= cap:
-            full += 1
-    return jsonify({"work": work, "cool": cool, "full": full, "today": today, "working": work, "cooling": cool, "batch_size": 300})
+        rows.append({"id": key, "phone": b.get("phone"), "daily_used": used})
+    return jsonify({
+        "bots": rows,
+        "summary": {"work": work, "cooldown": cool, "daily_capped": capped, "total": len(rows)},
+        "work": work, "working": work, "cool": cool, "cooling": cool,
+        "full": capped, "today": today, "batch_size": 300,
+    })
 
 
 @app.route("/api/export/round", methods=["GET"])
@@ -2338,7 +2370,8 @@ def api_status():
             "first_name": bot.get("first_name", ""),
             "status": bot.get("status", "ready"),
             "type": bot.get("type", "userbot"),
-            "added_time": bot.get("added_time", "")
+            "added_time": bot.get("added_time", ""),
+            "proxy": bot.get("proxy", "")
         })
     return jsonify({"bots": safe_bots, "total": len(safe_bots)})
 

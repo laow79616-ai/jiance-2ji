@@ -327,79 +327,57 @@
 
         <!-- Tab: Bot Management -->
         <div class="tab-content" id="tab-bots">
-            <div class="card">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                    <h3 style="margin-bottom:0">水军列表</h3>
-                    <div style="display:flex;gap:8px">
-                        <button class="btn btn-primary btn-sm" onclick="switchTab('add-bot')">+ 增加水军</button>
-                        <button class="btn btn-secondary btn-sm" onclick="refreshStatus()">刷新</button>
-                    </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+                <div style="font-size:13px;color:var(--text-secondary)">左侧选线路 · 右侧操作水军 <span id="botProbeBar"></span></div>
+                <button class="btn btn-warning btn-sm" onclick="probeAllBots()">一键全部检测</button>
+            </div>
+            <div style="display:flex;gap:14px;align-items:stretch;min-height:68vh">
+                <div class="card" style="width:300px;flex:0 0 300px;padding:12px">
+                    <div style="font-weight:600;margin-bottom:8px">线路分组 <span id="lineTotalHint" style="font-weight:400;color:#7dd3fc;font-size:12px"></span></div>
+                    <input id="lineSearch" placeholder="搜索线路 / 号码 / 名称" oninput="filterLineNav()" style="width:100%;margin-bottom:8px">
+                    <div id="lineNav" style="max-height:70vh;overflow:auto"></div>
                 </div>
-                <div class="bot-grid" id="botGrid">
-                    <!-- Bot cards will be rendered here -->
+                <div class="card" style="flex:1;min-width:0;padding:14px">
+                    <div id="lineWorkArea"><p style="color:var(--text-secondary)">请从左侧选择一条线路</p></div>
                 </div>
             </div>
         </div>
 
-        <!-- Tab: Add Bot -->
         <div class="tab-content" id="tab-add-bot">
-            <div class="card">
-                <h3>增加水军账号</h3>
-                <p style="color:var(--text-secondary);font-size:13px;margin-bottom:20px">添加新的 Telegram 水军账号，通过手机号验证后自动登录。</p>
-                
-                <div class="form-group">
-                    <label>水军编号 *</label>
-                    <input type="text" id="addBotName" placeholder="例如: 1（自动编号）">
-                </div>
-                <div class="form-group">
-                    <label>手机号 *</label>
-                    <input type="text" id="addBotPhone" placeholder="例如: +8613800138000（含国际区号）">
-                </div>
-                
-                <!-- API 配置（可选，留空则使用系统随机配置） -->
+            <div class="card" style="margin-bottom:14px">
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>API ID（可选）</label>
-                        <input type="text" id="addBotApiId" placeholder="留空则使用系统配置">
-                    </div>
-                    <div class="form-group">
-                        <label>API Hash（可选）</label>
-                        <input type="text" id="addBotApiHash" placeholder="留空则使用系统配置">
-                    </div>
+                    <div class="form-group"><label>手机号</label><input type="text" id="addBotPhone" placeholder="手机号"></div>
+                    <div class="form-group"><label>备注</label><input type="text" id="addBotName" placeholder="备注"></div>
                 </div>
-                <p style="color:var(--text-secondary);font-size:12px;margin-top:-8px;margin-bottom:16px;">
-                    如需使用独立 API，请填写上方两个字段。留空则自动从系统 API 池随机选取。
-                </p>
-                
-                <div style="margin-top:12px;display:flex;gap:12px;align-items:flex-end">
-                    <div class="form-group" style="flex:1;margin-bottom:0">
-                        <label>验证码</label>
-                        <input type="text" id="addBotCode" placeholder="输入收到的验证码">
-                    </div>
-                    <button class="btn btn-warning" id="sendCodeBtn" onclick="sendCode()" style="height:42px;white-space:nowrap">发送验证码</button>
+                <div class="form-row">
+                    <div class="form-group"><label>API</label><select id="addBotApi"><option value="">自动分配 API</option></select></div>
+                    <div class="form-group"><label>代理线路</label><select id="addBotLine"><option value="">自动分配未满线路</option></select></div>
                 </div>
-                <div class="form-group" style="margin-top:12px">
-                    <label>两步验证密码（可选）</label>
-                    <input type="password" id="addBot2FA" placeholder="如果开启了两步验证，请输入密码">
+                <button class="btn btn-primary" id="sendCodeBtn" onclick="sendCode()">发送验证码</button>
+                <p id="addBotMsg" style="margin-top:8px;font-size:13px;color:#81c784"></p>
+            </div>
+            <div class="card">
+                <div class="form-row">
+                    <div class="form-group"><label>手机号</label><input type="text" id="verifyPhone" placeholder="手机号"></div>
+                    <div class="form-group"><label>验证码</label><input type="text" id="addBotCode" placeholder="验证码"></div>
+                    <div class="form-group"><label>两步密码</label><input type="password" id="addBot2FA" placeholder="两步密码"></div>
                 </div>
-                
-                <div style="margin-top:20px;display:flex;gap:12px">
-                    <button class="btn btn-primary" onclick="addBot()">验证并添加</button>
-                    <button class="btn btn-secondary" onclick="clearAddForm()">清空</button>
+                <button class="btn btn-success" onclick="addBot()">确认登录</button>
+            </div>
+            <div class="card" style="margin-top:14px">
+                <h3 style="margin-bottom:6px">上传 ZIP 批量导入（.session + .json）</h3>
+                <p style="color:var(--text-secondary);font-size:13px;margin-bottom:10px">死号不导入，活号自动分配到未满线路。</p>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                    <input type="file" id="zipFile" accept=".zip,application/zip" style="flex:1;min-width:180px">
+                    <button class="btn btn-primary" type="button" onclick="uploadSessionZip()">上传并导入</button>
                 </div>
-
-                <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
-                    <h3>批量添加</h3>
-                    <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">每行一个，格式：编号,手机号</p>
-                    <div class="form-group">
-                        <textarea id="batchAddInput" placeholder="1,+8613800138000&#10;2,+8613900139000&#10;3,+8613700137000"></textarea>
-                    </div>
-                    <button class="btn btn-primary" onclick="batchAddBots()">批量添加</button>
+                <div style="margin-top:12px;height:8px;background:#0b1220;border-radius:6px;overflow:hidden;border:1px solid var(--border)">
+                    <div id="zipBar" style="height:100%;width:0;background:#3b82f6"></div>
                 </div>
+                <p id="zipMsg" style="font-size:12px;color:#81c784;margin-top:8px"></p>
             </div>
         </div>
 
-        <!-- Tab: Username Check -->
         <div class="tab-content" id="tab-check">
             <div class="card">
                 <h3>批量检测用户名</h3>
@@ -966,15 +944,17 @@
         function sendCode() {
             const phone = document.getElementById('addBotPhone').value.trim();
             if (!phone) { showToast('请填写手机号'); return; }
-            
-            const apiId = document.getElementById('addBotApiId').value.trim();
-            const apiHash = document.getElementById('addBotApiHash').value.trim();
-            
+            const vphone = document.getElementById('verifyPhone');
+            if (vphone && !vphone.value.trim()) vphone.value = phone;
             const payload = { phone };
-            if (apiId && apiHash) {
-                payload.api_id = apiId;
-                payload.api_hash = apiHash;
+            const apiSel = document.getElementById('addBotApi');
+            const lineSel = document.getElementById('addBotLine');
+            if (apiSel && apiSel.value && apiSel.value.indexOf('|')>0) {
+                const parts = apiSel.value.split('|');
+                payload.api_id = parts[0];
+                payload.api_hash = parts[1];
             }
+            if (lineSel && lineSel.value) payload.proxy = lineSel.value;
             
             const btn = document.getElementById('sendCodeBtn');
             btn.disabled = true;
@@ -1004,17 +984,20 @@
             const phone = document.getElementById('addBotPhone').value.trim();
             const code = document.getElementById('addBotCode').value.trim();
             const password = document.getElementById('addBot2FA').value.trim();
-            const apiId = document.getElementById('addBotApiId').value.trim();
-            const apiHash = document.getElementById('addBotApiHash').value.trim();
+            const apiSel = document.getElementById('addBotApi');
+            const lineSel = document.getElementById('addBotLine');
+            const vphone = (document.getElementById('verifyPhone')||{}).value || '';
+            const phone2 = (vphone||'').trim() || phone;
 
-            if (!name || !phone) { showToast('请填写编号和手机号'); return; }
+            if (!phone2) { showToast('请填写手机号'); return; }
             if (!code) { showToast('请填写验证码'); return; }
 
-            const payload = { name, phone, code, password };
-            if (apiId && apiHash) {
-                payload.api_id = apiId;
-                payload.api_hash = apiHash;
+            const payload = { name: name||'bot', phone: phone2, code, password };
+            if (apiSel && apiSel.value && apiSel.value.indexOf('|')>0) {
+                const parts = apiSel.value.split('|');
+                payload.api_id = parts[0]; payload.api_hash = parts[1];
             }
+            if (lineSel && lineSel.value) payload.proxy = lineSel.value;
 
             apiCall('/api/bot/verify', 'POST', payload).then(data => {
                 showToast('水军添加成功！');
@@ -1254,11 +1237,13 @@
         }
 
         async function stopCheck() {
-            shouldStop = true;
-            applyJobButtons(false);
-            showToast('已停止');
-            var token = localStorage.getItem('tg_auth_key') || 'fe570f573d2840308f6a298daa3ad4a0';
-            try { await fetch('/api/check/job/stop', {method:'POST', headers:{'Authorization':'Bearer '+token}}); } catch(e){}
+            window.shouldStop = true;
+            try { await apiCall('/api/check/job/stop','POST',{}); } catch(e) {}
+            var startBtn = document.getElementById('startCheckBtn');
+            var stopBtn = document.getElementById('stopCheckBtn');
+            if (startBtn) startBtn.classList.remove('hidden');
+            if (stopBtn) stopBtn.classList.add('hidden');
+            showToast('已暂停，队列和结果保留');
         }
 
         function attachJobPoll() {
@@ -1385,9 +1370,7 @@
         }
         /* old stopCheck removed */
         async function clearCheck() {
-            try {
-                await apiCall('/api/check/job/stop','POST',{});
-            } catch(e) {}
+            try { await apiCall('/api/check/job/clear','POST',{}); } catch(e) {}
             checkResults = [];
             var box = document.getElementById('usernameInput');
             if (box) box.value = '';
@@ -1398,7 +1381,6 @@
             if(tip) tip.textContent='总导入 0 · 本批工作 0 · 队列剩余 0';
             var list=document.getElementById('checkResultsList');
             if(list) list.innerHTML='';
-            try { updateCheckStats(); } catch(e) {}
             showToast('已清空本轮任务和统计');
         }
 
@@ -1500,22 +1482,12 @@
         async function refreshBotWorkStatus() {
             try {
                 var d = await apiCall('/api/bots/work_status');
-                var s = (d && d.summary) || d || {};
-                var work = Number(s.work != null ? s.work : (s.working != null ? s.working : (d.work != null ? d.work : d.working))) || 0;
-                var cool = Number(s.cool != null ? s.cool : (s.cooling != null ? s.cooling : (s.cooldown != null ? s.cooldown : d.cool))) || 0;
-                var cap  = Number(s.full != null ? s.full : (s.daily_capped != null ? s.daily_capped : d.full)) || 0;
-                var used = Number(s.today != null ? s.today : (d.today_used != null ? d.today_used : d.today)) || 0;
-                var map = {
-                    dsWork: work, checkWork: work, statWork: work,
-                    dsCool: cool, checkCool: cool, statCool: cool, dsCooldown: cool,
-                    dsCapped: cap, checkCapped: cap, statCapped: cap, dsFull: cap,
-                    dsToday: used, checkToday: used, statToday: used, dsDetectToday: used
-                };
-                Object.keys(map).forEach(function(id){
-                    var el = document.getElementById(id);
-                    if (el) el.textContent = map[id];
-                });
-                document.querySelectorAll('#tab-check .stat-card, #detectStatusBar .stat-card, .detect-meter .stat-card').forEach(function(card){
+                var s = (d && d.summary) || {};
+                var work = Number(s.work != null ? s.work : d.work) || 0;
+                var cool = Number(s.cooldown != null ? s.cooldown : d.cool) || 0;
+                var cap  = Number(s.daily_capped != null ? s.daily_capped : d.full) || 0;
+                var used = Number(d.today || 0) || 0;
+                document.querySelectorAll('#tab-check .stat-card').forEach(function(card){
                     var lab = ((card.querySelector('.label')||{}).textContent||'').trim();
                     var num = card.querySelector('.number');
                     if (!num) return;
@@ -2010,6 +1982,7 @@
             if (tabName === 'pool') tabName = 'pool-api';
             if (tabName === 'pool-api') { try { loadPoolApi(); } catch (e) {} }
             if (tabName === 'pool-ip') { try { loadPoolProxy(); } catch (e) {} }
+            if (tabName === 'bots' || tabName === 'add-bot') { try { loadLineBoard(); } catch (e) {} }
 
             try {
               if (tabName === 'keyword') document.body.classList.add('show-keyword');
@@ -2065,7 +2038,124 @@
 
         // Init
         checkAuth();
-    </script>
+    
+window.LINE_CAP = 10;
+window.lineBoard = window.lineBoard || { lines: [], current: null, probe: {} };
+function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;'); }
+function proxyHost(p){ p=String(p||'').trim(); return p?p.split(':')[0]:''; }
+async function loadLineBoard(){
+  try{
+    let d;
+    try { d = await apiCall('/api/bots/lines'); if(!d || !d.lines) throw new Error('nolines'); }
+    catch(e){
+      const st = await apiCall('/api/status').catch(function(){ return {bots:[]}; });
+      const px = await apiCall('/api/pool/proxy').catch(function(){ return {pool:[]}; });
+      const bots = st.bots || [];
+      const pool = px.pool || px.proxies || [];
+      const lines = pool.map(function(item,i){
+        const proxy = (item && (item.proxy || item.raw || item.label)) || String(item||'');
+        const host = String(proxy).split(':')[0];
+        const mine = bots.filter(function(b){
+          const bp = String(b.proxy || b.proxy_line || '');
+          return bp && (bp===proxy || bp.indexOf(host)===0);
+        });
+        return {id:'L'+i, proxy:proxy, bots:mine};
+      });
+      const used = {};
+      lines.forEach(function(L){ L.bots.forEach(function(b){ used[b.id]=1; }); });
+      const left = bots.filter(function(b){ return !used[b.id]; });
+      if(left.length) lines.push({id:'Lun', proxy:'未分配', bots:left});
+      if(!lines.length) lines.push({id:'L0', proxy:'未分配', bots:[]});
+      d = { total_bots: bots.length, lines: lines };
+    }
+    window.lineBoard.lines = d.lines || [];
+    const nav=document.getElementById('lineNav');
+    const hint=document.getElementById('lineTotalHint');
+    if(hint) hint.textContent='· 共 '+(d.total_bots||0)+' 号';
+    const q=((document.getElementById('lineSearch')||{}).value||'').toLowerCase();
+    if(!nav) return;
+    nav.innerHTML = window.lineBoard.lines.map(function(L,i){
+      const host=proxyHost(L.proxy);
+      const text=((i+1)+'组 '+host+' '+(L.bots||[]).map(b=>b.phone||'').join(' ')).toLowerCase();
+      if(q && text.indexOf(q)<0) return '';
+      const on=(window.lineBoard.current===L.id)?'background:rgba(76,175,80,.18);border-color:#4caf50':'';
+      return '<div class="group-item" data-line="'+escAttr(L.id)+'" onclick="selectLine(\''+escAttr(L.id)+'\')" style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer;'+on+'"><div style="font-weight:600;color:#81c784">'+(i+1)+'组 · '+escAttr(host||L.proxy||'未分配')+'</div><div style="font-size:12px;color:var(--text-secondary)">'+(L.bots||[]).length+'/'+window.LINE_CAP+'</div></div>';
+    }).join('') || '<p style="color:var(--text-secondary)">无匹配</p>';
+    const sel=document.getElementById('addBotLine');
+    if(sel){
+      const cur=sel.value;
+      sel.innerHTML='<option value="">自动分配未满线路</option>'+window.lineBoard.lines.map(function(L){
+        return '<option value="'+escAttr(L.proxy)+'">'+escAttr(proxyHost(L.proxy)||L.proxy)+'</option>';
+      }).join('');
+      if(cur) sel.value=cur;
+    }
+    if(window.lineBoard.current) selectLine(window.lineBoard.current);
+    else if(window.lineBoard.lines[0]) selectLine(window.lineBoard.lines[0].id);
+  }catch(e){ if(typeof showToast==='function') showToast('加载线路失败: '+(e.message||e)); }
+}
+function filterLineNav(){ loadLineBoard(); }
+function selectLine(id){
+  window.lineBoard.current=id;
+  const L=(window.lineBoard.lines||[]).find(x=>x.id===id);
+  const box=document.getElementById('lineWorkArea');
+  if(!box||!L) return;
+  const list=L.bots||[];
+  let html='<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px"><div><div style="font-weight:700;color:#4ade80">代理-'+escAttr(proxyHost(L.proxy)||L.proxy||'未分配')+'</div><div style="font-size:12px;color:var(--text-secondary)">'+list.length+'/'+window.LINE_CAP+'</div></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="lineSet(\''+escAttr(L.id)+'\',\'start\')">整组上线</button><button class="btn btn-secondary btn-sm" onclick="lineSet(\''+escAttr(L.id)+'\',\'stop\')">整组下线</button><button class="btn btn-danger btn-sm" onclick="deleteSelectedBots()">删除所选</button></div></div>';
+  if(!list.length) html+='<p style="color:var(--text-secondary)">该线路暂无水军</p>';
+  list.forEach(function(a){
+    const st=a.status||'unknown';
+    const color=st==='running'||st==='ok'?'#4caf50':'#ef5350';
+    html+='<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div>'+escAttr(a.phone||'')+'</div><div style="color:'+color+';font-size:12px">'+escAttr(st)+'</div></div><div style="display:flex;gap:8px;align-items:center"><input type="checkbox" class="bot-sel" data-id="'+escAttr(a.id)+'"><button class="btn btn-danger btn-sm" onclick="deleteOneBot(\''+escAttr(a.id)+'\')">删除</button></div></div>';
+  });
+  box.innerHTML=html;
+}
+async function lineSet(id, act){
+  const L=(window.lineBoard.lines||[]).find(x=>x.id===id); if(!L) return;
+  for (const b of (L.bots||[])) {
+    try { await apiCall(act==='start'?'/api/bot/start':'/api/bot/stop','POST',{id:b.id}); } catch(e){}
+  }
+  showToast(act==='start'?'已请求上线':'已请求下线');
+  loadLineBoard();
+}
+async function deleteOneBot(id){
+  if(!confirm('删除该水军？')) return;
+  try { await apiCall('/api/bot/delete','POST',{id:id}); showToast('已删除'); loadLineBoard(); }
+  catch(e){ showToast(e.message||'删除失败'); }
+}
+async function deleteSelectedBots(){
+  const ids=[].map.call(document.querySelectorAll('.bot-sel:checked'), el=>el.getAttribute('data-id'));
+  if(!ids.length){ showToast('未选择'); return; }
+  if(!confirm('删除所选 '+ids.length+' 个？')) return;
+  for (const id of ids) { try { await apiCall('/api/bot/delete','POST',{id:id}); } catch(e){} }
+  loadLineBoard();
+}
+async function probeAllBots(){
+  const bar=document.getElementById('botProbeBar');
+  if(bar) bar.textContent='检测中…';
+  try {
+    const d=await apiCall('/api/bots/health','POST',{});
+    if(bar) bar.textContent='可用 '+(d.ok||0)+' / 共 '+(d.total||0);
+  } catch(e) { if(bar) bar.textContent='当前后端无健康检测接口'; }
+  loadLineBoard();
+}
+async function uploadSessionZip(){
+  const input=document.getElementById('zipFile');
+  const msg=document.getElementById('zipMsg');
+  if(!input||!input.files||!input.files[0]){ showToast('请选择 ZIP'); return; }
+  const fd=new FormData(); fd.append('file', input.files[0]);
+  const token=(typeof AUTH_KEY!=='undefined'&&AUTH_KEY)||localStorage.getItem('tg_auth_key')||'';
+  try{
+    const res=await fetch('/api/bot/import_zip',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
+    const d=await res.json().catch(()=>({}));
+    if(!res.ok||d.error) throw new Error(d.error||('HTTP '+res.status));
+    if(msg) msg.textContent='导入 '+(d.imported||0);
+    showToast('导入完成');
+    loadLineBoard();
+  }catch(e){ if(msg) msg.textContent=e.message||'导入失败（2号机若无该接口需补后端）'; showToast(e.message||'导入失败'); }
+}
+
+</script>
 
 <script>
 (function(){
