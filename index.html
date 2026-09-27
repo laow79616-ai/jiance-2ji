@@ -1168,7 +1168,7 @@
                 if ((r.status === 'clean' || r.status === 'taken' || r.collect) && r.status !== 'available') clean++;
                 if (r.status === 'deleted') del++;
             });
-            set('checkAvailable', clean);
+            window._jobSnap=job; set('checkAvailable', job.available != null ? job.available : clean);
             set('checkPremium', job.premium != null ? job.premium : prem);
             set('checkDeleted', job.deleted != null ? job.deleted : del);
             set('checkWorking', batchWork);
@@ -1396,7 +1396,7 @@
             set('checkTotal', totalAll);
             set('checkBatch', working || batchSize);
             set('checkRemain', remain);
-            set('checkAvailable', list.filter(r => r.status === 'clean' || r.collect === true).length);
+            if (!(window._jobSnap && window._jobSnap.available != null)) set('checkAvailable', list.filter(r => r.status === 'clean' || r.collect === true).length);
             set('checkPremium', list.filter(r => !!r.premium).length);
             set('checkDeleted', list.filter(r => r.status === 'deleted').length);
             set('checkPending', working);
@@ -1496,6 +1496,8 @@
                     else if (lab === '今日已满' || lab === '已满') num.textContent = cap;
                     else if (lab === '今日检测' || lab === '今日') num.textContent = used;
                 });
+                var setn=function(id,v){ var el=document.getElementById(id); if(el) el.textContent=v; };
+                setn('dsWork', work); setn('dsCool', cool); setn('dsCapped', cap); setn('dsToday', used);
                 var line = document.getElementById('botWorkStatus');
                 if (line) line.textContent = '工作 '+work+' · 冷却 '+cool+' · 日额满 '+cap+' · 每批≤300';
             } catch (e) {}
