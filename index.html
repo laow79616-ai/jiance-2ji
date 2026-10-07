@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TG 飞机用户检测 2 号机 - 管理面板</title>
+    <title>TG用户名检测工具 - 管理面板</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%232AABEE'/%3E%3Cstop offset='100%25' style='stop-color:%23229ED9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='50' fill='url(%23g)'/%3E%3Cpath d='M25 50l7-7 12 12 24-24 7 7-31 31z' fill='white'/%3E%3C/svg%3E">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -250,7 +250,7 @@
             <div class="logo" style="margin:0 auto 20px">
                 <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
             </div>
-            <h2>2号机检测面板</h2>
+            <h2>TG 管理面板</h2>
             <input type="text" id="loginUsername" placeholder="用户名" style="margin-bottom:12px" onkeypress="if(event.key==='Enter')document.getElementById('loginPassword').focus()">
             <input type="password" id="loginPassword" placeholder="密码" onkeypress="if(event.key==='Enter')doLogin()">
             <button class="btn btn-primary" onclick="doLogin()" style="width:100%;margin-top:12px">登录</button>
@@ -263,7 +263,7 @@
             <div class="logo">
                 <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
             </div>
-            <h1>检测二号机</h1>
+            <h1>检测一号机</h1>
             <p class="subtitle">批量检测 · 水军管理 · 关键词筛选 · 一键导出</p>
         </div>
 
@@ -1285,7 +1285,28 @@
 
 
         
+        
+        function applyCheckData(index, data) {
+            if (!checkResults[index] || !data) return;
+            if (data.status) checkResults[index].status = data.status;
+            checkResults[index].premium = !!data.premium;
+            checkResults[index].collect = !!data.collect;
+            checkResults[index].is_ad = !!data.is_ad;
+            checkResults[index].is_spam = !!data.is_spam;
+            checkResults[index].error = data.reason || data.error || '';
+            checkResults[index].reason = data.reason || data.error || '';
+            checkResults[index].first_name = data.first_name || '';
+            checkResults[index].online = data.online || '';
+            checkResults[index].was_online = data.was_online || '';
+            checkResults[index].phone = data.phone || '';
+        }
+
         function statusLabel(status, premium) {
+            if (status === 'spam') return { text: '水军', color: '#ff5252' };
+            if (status === 'ad') return { text: '广告', color: '#ff5252' };
+            if (status === 'unavailable' || status === 'retry') return { text: '未找到', color: '#8b93a7' };
+            if (status === 'flood') return { text: '限流', color: '#ff9800' };
+            if (status === 'skip') return { text: '已跳过', color: '#666' };
             if (status === 'inactive') return { text: '超30天', color: '#90a4ae' };
             if (premium || status === 'premium') return { text: '会员', color: '#ffc107' };
             var map = {
@@ -1347,11 +1368,13 @@
         }
 
         function renderCheckResults() {
+            var viewRows = checkResults.filter(function(r){ return !r || r.status !== 'skip'; });
+
             var box = document.getElementById('checkResultsList');
             if (!box) return;
-            var list = (window.checkResults && window.checkResults.length)
-                ? window.checkResults
-                : ((typeof checkResults !== 'undefined' && checkResults) ? checkResults : []);
+            var list = (window.viewRows && window.viewRows.length)
+                ? window.viewRows
+                : ((typeof viewRows !== 'undefined' && viewRows) ? viewRows : []);
             if (!list.length) { box.innerHTML = ''; return; }
             box.innerHTML = list.map(function(r) {
                 var s = statusLabel(r.status, r.premium);
@@ -1374,6 +1397,31 @@
             updateCheckStats();
             try {
                 var data = await apiCall('/api/check/one', 'POST', { username: username });
+                
+                if (data && data.status === 'flood' && !data.drop) {
+                    checkResults[index].status = 'flood';
+                    checkResults[index].error = data.reason || '限流';
+                    checkResults[index].collect = false;
+                    try { updateCheckStats(); } catch (e) {}
+                    try { applyCheckData(index, data); } catch (e) {}
+                    try { renderCheckResults(typeof currentFilter === 'string' ? currentFilter : 'all'); } catch (e) {}
+                    return;
+                }
+
+                if (data && (data.drop || data.status === 'skip')) {
+                    checkResults[index].status = data.status || 'skip';
+                    checkResults[index].error = data.reason || data.error || '';
+                    checkResults[index].reason = data.reason || data.error || '';
+                    checkResults[index].first_name = data.first_name || '';
+                    checkResults[index].online = data.online || '';
+                    checkResults[index].premium = !!data.premium;
+                    checkResults[index].collect = !!data.collect;
+                    checkResults[index].phone = data.phone || '';
+                    try { updateCheckStats(); } catch (e) {}
+                    try { renderCheckResults(typeof currentFilter === 'string' ? currentFilter : 'all'); } catch (e) {}
+                    return;
+                }
+
                 var row = normalizeCheckRow(data, username);
                 checkResults[index] = row;
                 if (row.premium) {
@@ -2007,7 +2055,250 @@
 
         // Init
         checkAuth();
-    </script>
+    
+/* keep-check-log */
+(function () {
+    function snapshot() {
+        try {
+            window._keptResults = window._keptResults || [];
+            var cur = (typeof checkResults !== 'undefined' && checkResults) ? checkResults : [];
+            for (var i = 0; i < cur.length; i++) {
+                var r = cur[i];
+                if (!r || !r.username) continue;
+                if (r.status === 'pending' || r.status === 'checking' || r.status === '等待') continue;
+                var key = String(r.username).toLowerCase();
+                var at = -1;
+                for (var j = 0; j < window._keptResults.length; j++) {
+                    if (String(window._keptResults[j].username || '').toLowerCase() === key) { at = j; break; }
+                }
+                if (at >= 0) window._keptResults[at] = r;
+                else window._keptResults.push(r);
+            }
+            try { localStorage.setItem('tg_check_log', JSON.stringify(window._keptResults)); } catch (e) {}
+        } catch (e) {}
+    }
+    try {
+        var saved = JSON.parse(localStorage.getItem('tg_check_log') || '[]');
+        if (Array.isArray(saved)) window._keptResults = saved;
+    } catch (e) { window._keptResults = window._keptResults || []; }
+    function paintCounts() {
+        var done = window._keptResults || [];
+        var pend = 0;
+        try {
+            var cur = checkResults || [];
+            for (var i = 0; i < cur.length; i++) {
+                var st = cur[i] && cur[i].status;
+                if (st === 'pending' || st === 'checking' || st === '等待') pend++;
+            }
+        } catch (e) {}
+        function set(id, n) { var el = document.getElementById(id); if (el) el.textContent = n; }
+        set('checkAvailable', done.filter(function (r) { return r.status === 'clean' || r.status === 'available'; }).length);
+        set('checkPremium', done.filter(function (r) { return !!r.premium; }).length);
+        set('checkDeleted', done.filter(function (r) { return r.status === 'deleted'; }).length);
+        set('checkPending', pend);
+    }
+    if (typeof renderCheckResults === 'function') {
+        var _render = renderCheckResults;
+        var _lock = false;
+        renderCheckResults = function (filter) {
+            if (_lock) return _render.apply(this, arguments);
+            _lock = true;
+            var orig = checkResults;
+            try {
+                snapshot();
+                var kept = window._keptResults || [];
+                if (kept.length) {
+                    var seen = {};
+                    for (var i = 0; i < kept.length; i++) {
+                        if (kept[i] && kept[i].username) seen[String(kept[i].username).toLowerCase()] = 1;
+                    }
+                    var pending = [];
+                    var cur = orig || [];
+                    for (var j = 0; j < cur.length; j++) {
+                        var r = cur[j];
+                        if (!r) continue;
+                        var st = r.status;
+                        if ((st === 'pending' || st === 'checking' || st === '等待') && !seen[String(r.username || '').toLowerCase()]) pending.push(r);
+                    }
+                    checkResults = kept.concat(pending);
+                }
+                return _render.apply(this, arguments);
+            } finally {
+                checkResults = orig;
+                _lock = false;
+                try { paintCounts(); } catch (e) {}
+            }
+        };
+    }
+    function wrapStart(name) {
+        var fn = window[name];
+        if (typeof fn !== 'function') return;
+        window[name] = async function () {
+            try { snapshot(); } catch (e) {}
+            return fn.apply(this, arguments);
+        };
+    }
+    wrapStart('startCheck');
+    wrapStart('startCheckQueued');
+    if (typeof clearCheck === 'function') {
+        var _clear = clearCheck;
+        clearCheck = function () {
+            window._keptResults = [];
+            try { localStorage.removeItem('tg_check_log'); } catch (e) {}
+            return _clear.apply(this, arguments);
+        };
+    }
+    try { if (window._keptResults && window._keptResults.length && typeof renderCheckResults === 'function') renderCheckResults('all'); } catch (e) {}
+})();
+
+/* keep-row-after-check */
+(function () {
+    function esc(s) {
+        return String(s || "").replace(/[&<>"']/g, function (c) {
+            return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+        });
+    }
+    function labelOf(r) {
+        if (!r) return "未检出";
+        if (r.result_label) return r.result_label;
+        if (r.premium && (r.status === "clean" || r.status === "available" || r.status === "taken")) return "会员";
+        var map = {clean:"可用",available:"可用",taken:"已占用",ad:"广告",spam:"水军",deleted:"已注销",inactive:"不活跃",skip:"未检出",unavailable:"未注册",retry:"未找到",flood:"冻结",error:"错误",invalid:"无效",pending:"等待",checking:"检测中"};
+        return map[r.status] || r.status || "未检出";
+    }
+    function showRow(r, f) {
+        f = f || "all";
+        var lab = labelOf(r);
+        if (f === "all" || f === "全部") return true;
+        if (f === "premium" || f === "会员") return !!r.premium || lab === "会员";
+        if (f === "ad" || f === "广告") return r.status === "ad" || lab === "广告";
+        if (f === "spam" || f === "水军" || f === "水军号") return r.status === "spam" || lab === "水军";
+        if (f === "deleted" || f === "已注销") return r.status === "deleted" || lab === "已注销";
+        if (f === "available" || f === "clean" || f === "可用") return r.status === "clean" || r.status === "available" || lab === "可用";
+        if (f === "flood" || f === "frozen" || f === "inactive" || f === "冻结") return r.status === "flood" || r.status === "inactive" || lab === "冻结" || lab === "不活跃";
+        if (f === "unavailable" || f === "skip" || f === "未注册") return r.status === "unavailable" || r.status === "skip" || r.status === "retry" || lab === "未注册" || lab === "未检出";
+        return r.status === f || lab === f;
+    }
+    function remember(row) {
+        window._keptResults = window._keptResults || [];
+        var key = String(row.username || "").replace(/^@/, "").toLowerCase();
+        var at = -1;
+        for (var i = 0; i < window._keptResults.length; i++) {
+            if (String(window._keptResults[i].username || "").replace(/^@/, "").toLowerCase() === key) { at = i; break; }
+        }
+        if (at >= 0) window._keptResults[at] = row;
+        else window._keptResults.push(row);
+        try { localStorage.setItem("tg_check_log", JSON.stringify(window._keptResults)); } catch (e) {}
+    }
+    function ensureVisible() {
+        var list = document.getElementById("checkResultsList");
+        if (!list) return;
+        var f = window._checkFilter || "all";
+        var have = {};
+        Array.prototype.forEach.call(list.children, function (el) {
+            var m = (el.innerText || "").match(/@([A-Za-z0-9_]+)/);
+            if (m) have[m[1].toLowerCase()] = el;
+        });
+        var frag = document.createDocumentFragment();
+        (window._keptResults || []).forEach(function (r) {
+            if (!showRow(r, f)) return;
+            var key = String(r.username || "").replace(/^@/, "").toLowerCase();
+            if (!key || have[key]) return;
+            var lab = labelOf(r);
+            var name = (r.first_name || "");
+            var extra = r.reason || r.error || r.online || "";
+            var color = lab === "可用" ? "#22c55e" : lab === "会员" ? "#ffc107" : lab === "广告" ? "#f87171" : lab === "水军" ? "#fb923c" : lab === "已注销" ? "#a78bfa" : lab === "冻结" ? "#ff9800" : "#94a3b8";
+            var div = document.createElement("div");
+            div.setAttribute("data-keep-user", key);
+            div.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06)";
+            div.innerHTML = "<span>@" + esc(key) + (name ? " · " + esc(name) : "") + (extra ? " · " + esc(extra) : "") + "</span><span style=\"color:" + color + ";font-weight:600\">" + esc(lab) + "</span>";
+            frag.appendChild(div);
+        });
+        if (frag.childNodes.length) list.insertBefore(frag, list.firstChild);
+        var done = window._keptResults || [];
+        function num(id, n) { var el = document.getElementById(id); if (el) el.textContent = String(n); }
+        num("checkAvailable", done.filter(function (r) { return r.status === "clean" || r.status === "available"; }).length);
+        num("checkPremium", done.filter(function (r) { return !!r.premium; }).length);
+        num("checkDeleted", done.filter(function (r) { return r.status === "deleted"; }).length);
+    }
+    function restore(username, index, data) {
+        var uname = String((data && data.username) || username || "").replace(/^@/, "");
+        if (!uname || typeof checkResults === "undefined" || !checkResults) return;
+        var key = uname.toLowerCase();
+        var row = {
+            username: uname,
+            status: (data && data.status) || "skip",
+            premium: !!(data && data.premium),
+            reason: (data && (data.reason || data.error)) || "",
+            first_name: (data && data.first_name) || "",
+            online: (data && data.online) || "",
+            result_label: (data && data.result_label) || "",
+            drop: false
+        };
+        if (!data) row.result_label = "未检出";
+        var found = -1;
+        for (var i = 0; i < checkResults.length; i++) {
+            if (String(checkResults[i].username || "").replace(/^@/, "").toLowerCase() === key) { found = i; break; }
+        }
+        if (found >= 0) {
+            checkResults[found].status = row.status;
+            checkResults[found].premium = row.premium;
+            checkResults[found].reason = row.reason;
+            checkResults[found].first_name = row.first_name;
+            checkResults[found].online = row.online;
+            checkResults[found].result_label = row.result_label || labelOf(row);
+            checkResults[found].drop = false;
+            row = checkResults[found];
+        } else {
+            var at = (typeof index === "number" && index >= 0 && index <= checkResults.length) ? index : checkResults.length;
+            checkResults.splice(at, 0, row);
+        }
+        remember(row);
+        try { renderCheckResults(window._checkFilter || "all"); } catch (e) {}
+        try { ensureVisible(); } catch (e) {}
+    }
+    if (typeof checkUsername === "function") {
+        var _check = checkUsername;
+        checkUsername = async function (username, index) {
+            var captured = null;
+            var prev = apiCall;
+            apiCall = function () {
+                var args = arguments;
+                return Promise.resolve(prev.apply(this, args)).then(function (res) {
+                    try {
+                        if (args[0] && String(args[0]).indexOf("/api/check") >= 0 && res && (res.username || res.status)) captured = res;
+                    } catch (e) {}
+                    return res;
+                });
+            };
+            try {
+                return await _check.apply(this, arguments);
+            } finally {
+                apiCall = prev;
+                try { restore(username, index, captured); } catch (e) {}
+            }
+        };
+    }
+    if (typeof renderCheckResults === "function") {
+        var _render = renderCheckResults;
+        renderCheckResults = function (filter) {
+            if (filter) window._checkFilter = filter;
+            var ret = _render.apply(this, arguments);
+            try { ensureVisible(); } catch (e) {}
+            return ret;
+        };
+    }
+    if (typeof filterCheckResults === "function") {
+        var _filter = filterCheckResults;
+        filterCheckResults = function (filter) {
+            window._checkFilter = filter || "all";
+            var ret = _filter.apply(this, arguments);
+            try { ensureVisible(); } catch (e) {}
+            return ret;
+        };
+    }
+})();
+
+</script>
 
 
         <script>
@@ -2444,5 +2735,36 @@ async function uploadSessionZip(){
   setTimeout(load, 400);
 })();
 </script>
+
+<script>
+/* login-override-20261007 */
+function doLogin() {
+    var u = document.getElementById('loginUsername');
+    var p = document.getElementById('loginPassword');
+    var username = (u && u.value || '').trim();
+    var password = (p && p.value || '').trim();
+    if (username !== 'admin' || (password !== 'Ab123456987' && password !== 'Ab123456')) {
+        if (typeof showToast === 'function') showToast('用户名或密码错误');
+        else alert('用户名或密码错误');
+        return;
+    }
+    try { AUTH_KEY = 'fe570f573d2840308f6a298daa3ad4a0'; } catch (e) {}
+    localStorage.setItem('tg_auth_key', 'fe570f573d2840308f6a298daa3ad4a0');
+    localStorage.setItem('tg_logged_in', 'true');
+    var o = document.getElementById('loginOverlay');
+    var m = document.getElementById('mainContent');
+    if (o) o.style.display = 'none';
+    if (m) m.style.display = 'block';
+    if (typeof apiCall === 'function') {
+        apiCall('/api/status').then(function (data) {
+            if (typeof loadDashboard === 'function') loadDashboard(data);
+        }).catch(function () {});
+    }
+}
+function checkAuth() {
+    if (localStorage.getItem('tg_logged_in') === 'true') doLogin();
+}
+</script>
+
 </body>
 </html>
