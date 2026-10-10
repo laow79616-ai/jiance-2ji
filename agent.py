@@ -1714,6 +1714,47 @@ def _job_save():
     except Exception as e:
         print("[job] save", e)
 
+def _remember_history(row):
+    if not isinstance(row, dict):
+        return
+    u = str(row.get("username") or "").strip().lstrip("@")
+    st = str(row.get("status") or "")
+    if not u or st in ("pending", "checking", ""):
+        return
+    history_file = os.path.join(os.path.dirname(CONFIG_FILE), "check_history.json")
+    try:
+        rows = json.load(open(history_file, encoding="utf-8")) if os.path.exists(history_file) else []
+        if not isinstance(rows, list):
+            rows = []
+    except Exception:
+        rows = []
+    key = u.lower()
+    row = dict(row)
+    row["username"] = u
+    hit = False
+    for i, r in enumerate(rows):
+        if str((r or {}).get("username") or "").strip().lstrip("@").lower() == key:
+            rows[i] = row
+            hit = True
+            break
+    if not hit:
+        rows.append(row)
+    if len(rows) > 20000:
+        rows = rows[-20000:]
+    tmp = history_file + ".tmp"
+    json.dump(rows, open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
+    os.replace(tmp, history_file)
+
+def _seed_history_from_job():
+    path = os.path.join(os.path.dirname(CONFIG_FILE), "check_job_state.json")
+    try:
+        data = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
+        for r in (data.get("results") or []):
+            _remember_history(r)
+    except Exception as e:
+        print("[history] seed", e)
+
+
 def _job_resume():
     path = "/root/tg-scan-clean/check_job_state.json"
     if not os.path.exists(path):
@@ -1844,11 +1885,35 @@ def _check_job_worker():
                 CHECK_JOB["message"] = "检测中 · 完成 %s/%s · 剩余 %s" % (CHECK_JOB["done"], CHECK_JOB["total"], left_q)
                 CHECK_JOB["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 _job_save()
+            _remember_history(data)
             _sleep(delay if delay > 0 else 1.2)
     finally:
         with JOB_LOCK:
             CHECK_JOB["worker_on"] = False
 
+
+
+@app.route("/api/check/history", methods=["GET"])
+@require_auth
+def api_check_history():
+    history_file = os.path.join(os.path.dirname(CONFIG_FILE), "check_history.json")
+    try:
+        rows = json.load(open(history_file, encoding="utf-8")) if os.path.exists(history_file) else []
+    except Exception:
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+    return jsonify({"success": True, "total": len(rows), "results": rows})
+
+@app.route("/api/check/history/clear", methods=["POST"])
+@require_auth
+def api_check_history_clear():
+    history_file = os.path.join(os.path.dirname(CONFIG_FILE), "check_history.json")
+    try:
+        json.dump([], open(history_file, "w", encoding="utf-8"), ensure_ascii=False)
+    except Exception:
+        pass
+    return jsonify({"success": True})
 
 @app.route("/api/check/job/export", methods=["GET"])
 @require_auth
@@ -3424,4 +3489,8 @@ def _install_line_busy_retry():
     print("line busy retry on", endpoint)
 _install_line_busy_retry()
 
+try:
+    _job_resume()
+except Exception as _jr:
+    print('[job] resume', _jr)
 app.run(host='0.0.0.0', port=8902, debug=False)

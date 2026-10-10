@@ -263,7 +263,7 @@
             <div class="logo">
                 <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
             </div>
-            <h1>检测一号机</h1>
+            <h1>检测二号机</h1>
             <p class="subtitle">批量检测 · 水军管理 · 关键词筛选 · 一键导出</p>
         </div>
 
@@ -446,7 +446,7 @@
                     </div>
                 </div>
                 <div style="display:flex;gap:12px;flex-wrap:wrap">
-                    <button class="btn btn-primary" id="startCheckBtn" onclick="startCheckNow()">开始检测</button>
+                    <button class="btn btn-primary" id="startCheckBtn" onclick="startCheckQueued()">开始检测</button>
                     <button class="btn btn-danger hidden" id="stopCheckBtn" onclick="stopCheck()">停止</button>
                     <button class="btn btn-secondary" onclick="clearCheck()">清空</button>
                     <button class="btn btn-success" onclick="exportJob('all')">导出全部</button>
@@ -859,6 +859,8 @@
         function pauseForNetwork(reason) {
             if (networkPaused) return;
             networkPaused = true;
+            try { showToast('浏览器网络波动，后台检测继续'); } catch (e) {}
+            return;
             shouldStop = true;
             pendingResume = isChecking || (checkResults || []).some(r => r.status === 'pending' || r.status === 'checking');
             try { showToast('网络异常，已自动停止: ' + (reason || '')); } catch (e) {}
@@ -1271,6 +1273,28 @@
             set('dashTotal', total);
             set('dashBatch', batch);
             set('dashQueue', queueLeft);
+            try {
+                window._keptResults = window._keptResults || [];
+                for (var k = 0; k < list.length; k++) {
+                    var rr = list[k] || {};
+                    if (!rr.username || rr.status === 'pending' || rr.status === 'checking') continue;
+                    var key = String(rr.username).replace(/^@/, '').toLowerCase();
+                    var at = -1;
+                    for (var j = 0; j < window._keptResults.length; j++) {
+                        if (String(window._keptResults[j].username || '').replace(/^@/, '').toLowerCase() === key) { at = j; break; }
+                    }
+                    if (at >= 0) window._keptResults[at] = rr;
+                    else window._keptResults.push(rr);
+                }
+                clean = 0; prem = 0; del = 0;
+                for (var n = 0; n < window._keptResults.length; n++) {
+                    var x = window._keptResults[n] || {};
+                    if (x.status === 'clean' || x.status === 'available' || x.collect === true) clean++;
+                    if (x.premium) prem++;
+                    if (x.status === 'deleted') del++;
+                }
+                try { localStorage.setItem('tg_check_log', JSON.stringify(window._keptResults)); } catch (e2) {}
+            } catch (e) {}
             set('checkAvailable', clean);
             set('checkPremium', prem);
             set('checkDeleted', del);
@@ -1470,10 +1494,16 @@
                 var started = await apiCall('/api/check/job/start', 'POST', { usernames: names, delay: delay });
                 if (started && started.success === false) { showToast(started.error || '启动失败'); throw new Error(started.error || 'start'); }
             } catch (e) {
+                var msg = (e && e.message) ? e.message : String(e);
+                if (msg.indexOf('已有检测') >= 0) {
+                    showToast('后台已在检测，直接接上');
+                    resumeServerJob();
+                    return;
+                }
                 window.isChecking = false;
                 if (startBtn) startBtn.classList.remove('hidden');
                 if (stopBtn) stopBtn.classList.add('hidden');
-                showToast('后台启动失败: ' + (e && e.message ? e.message : e));
+                showToast('后台启动失败: ' + msg);
                 return;
             }
             showToast('已交给后台检测。刷新或断网也会继续，直到手动停止或全部查完');
@@ -2760,10 +2790,46 @@ function doLogin() {
             if (typeof loadDashboard === 'function') loadDashboard(data);
         }).catch(function () {});
     }
+    if (typeof resumeServerJob === 'function') resumeServerJob();
 }
 function checkAuth() {
     if (localStorage.getItem('tg_logged_in') === 'true') doLogin();
 }
+</script>
+
+
+<script>
+(function () {
+    async function pullHistory() {
+        try {
+            var d = await apiCall('/api/check/history');
+            var rows = (d && d.results) || [];
+            window._keptResults = window._keptResults || [];
+            for (var i = 0; i < rows.length; i++) {
+                var r = rows[i];
+                if (!r || !r.username || r.status === 'pending' || r.status === 'checking') continue;
+                var key = String(r.username).replace(/^@/, '').toLowerCase();
+                var at = -1;
+                for (var j = 0; j < window._keptResults.length; j++) {
+                    if (String(window._keptResults[j].username || '').replace(/^@/, '').toLowerCase() === key) { at = j; break; }
+                }
+                if (at >= 0) window._keptResults[at] = r;
+                else window._keptResults.push(r);
+            }
+            try { localStorage.setItem('tg_check_log', JSON.stringify(window._keptResults)); } catch (e) {}
+            if (typeof updateCheckStats === 'function') updateCheckStats();
+        } catch (e) {}
+    }
+    setTimeout(pullHistory, 1500);
+    setInterval(pullHistory, 4000);
+    if (typeof clearCheck === 'function') {
+        var _c = clearCheck;
+        clearCheck = function () {
+            try { apiCall('/api/check/history/clear', 'POST', {}); } catch (e) {}
+            return _c.apply(this, arguments);
+        };
+    }
+})();
 </script>
 
 </body>
